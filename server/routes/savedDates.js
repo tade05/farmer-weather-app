@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
-const SavedDate = require('../models/SavedDate');
+const SavedDate = require('../models/savedDate');
 
 // GET ALL SAVED DATES FOR A USER
 router.get('/', auth, async (req, res) => {
