@@ -1,0 +1,11 @@
+# Only ignore client node_modules
+client/node_modules/
+
+# Environment variables
+server/.env
+
+# Build
+client/build/
+
+# Logs
+*.log
