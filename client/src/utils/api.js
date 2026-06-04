@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance
 const api = axios.create({
-  baseURL: 'https://farmer-weather-app.onrender.com/api'
+  baseURL: process.env.REACT_APP_API_URL + '/api' || 'http://localhost:5000/api'
 });
 
 // Add token to every request automatically
