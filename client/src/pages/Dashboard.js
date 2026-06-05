@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { getWeatherForecast, saveDate } from '../utils/api';
 import { WiDaySunny, WiRain, WiCloudy, WiSnow, WiThunderstorm } from 'react-icons/wi';
@@ -23,13 +23,76 @@ const Dashboard = () => {
   const [note, setNote] = useState('');
   const [selectedForecast, setSelectedForecast] = useState(null);
 
+  // Suggestions state
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const debounceRef = useRef(null);
+  const suggestionsRef = useRef(null);
+
+  // Fetch city suggestions from Open-Meteo geocoding API (free, no key needed)
+  const fetchSuggestions = async (query) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    setSuggestionsLoading(true);
+    try {
+      const res = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=en&format=json`
+      );
+      const data = await res.json();
+      if (data.results) {
+        setSuggestions(data.results.map(r => ({
+          name: r.name,
+          country: r.country,
+          admin1: r.admin1, // state/region
+          display: [r.name, r.admin1, r.country].filter(Boolean).join(', ')
+        })));
+        setShowSuggestions(true);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } catch {
+      setSuggestions([]);
+    }
+    setSuggestionsLoading(false);
+  };
+
+  const handleCityChange = (e) => {
+    const value = e.target.value;
+    setCity(value);
+    // Debounce API call by 300ms
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(value), 300);
+  };
+
+  const handleSelectSuggestion = (suggestion) => {
+    setCity(suggestion.name);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleSearch = async (e) => {
     e.preventDefault();
+    setShowSuggestions(false);
     setLoading(true);
     setError('');
     try {
       const res = await getWeatherForecast(city);
-      // Get one forecast per day
       const dailyForecasts = res.data.forecasts.filter(f =>
         f.date.includes('12:00:00')
       ).slice(0, 7);
@@ -74,13 +137,38 @@ const Dashboard = () => {
       </div>
 
       <form onSubmit={handleSearch} className="search-form">
-        <input
-          type="text"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          placeholder="Enter city name (e.g. Lagos, Abuja)"
-          required
-        />
+        <div className="search-input-wrapper" ref={suggestionsRef}>
+          <input
+            type="text"
+            value={city}
+            onChange={handleCityChange}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            placeholder="Enter city name (e.g. Lagos, Abuja)"
+            required
+            autoComplete="off"
+          />
+          {showSuggestions && (
+            <ul className="suggestions-list">
+              {suggestionsLoading && (
+                <li className="suggestions-loading">Searching...</li>
+              )}
+              {!suggestionsLoading && suggestions.map((s, i) => (
+                <li
+                  key={i}
+                  className="suggestion-item"
+                  onMouseDown={() => handleSelectSuggestion(s)}
+                >
+                  <span className="suggestion-city">{s.name}</span>
+                  {s.admin1 || s.country ? (
+                    <span className="suggestion-region">
+                      {[s.admin1, s.country].filter(Boolean).join(', ')}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading ? 'Searching...' : 'Search Weather'}
         </button>
