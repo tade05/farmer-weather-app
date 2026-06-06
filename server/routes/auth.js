@@ -3,7 +3,6 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 const User = require('../models/user');
 const auth = require('../middleware/auth');
 
@@ -82,7 +81,7 @@ router.put('/update-location', auth, async (req, res) => {
   }
 });
 
-// FORGOT PASSWORD - sends reset email
+// FORGOT PASSWORD - sends reset email via Brevo HTTP API
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   try {
@@ -96,34 +95,37 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000;
     await user.save();
 
-    // Using Brevo SMTP - works reliably on Render free tier
-    const transporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.BREVO_SMTP_LOGIN,
-        pass: process.env.BREVO_SMTP_PASSWORD,
-      },
-    });
-
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
 
-    await transporter.sendMail({
-      from: `"FarmWeather" <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: 'FarmWeather Password Reset',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
-          <h2 style="color: #2d6a4f;">🌾 FarmWeather Password Reset</h2>
-          <p>You requested a password reset. Click the button below to set a new password:</p>
-          <a href="${resetUrl}" style="display:inline-block; padding: 12px 24px; background: #40916c; color: white; text-decoration: none; border-radius: 8px; margin: 16px 0;">
-            Reset Password
-          </a>
-          <p style="color: #666; font-size: 0.85rem;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
-        </div>
-      `,
+    // Brevo HTTP API - works on Render free tier (no SMTP needed)
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': process.env.BREVO_API_KEY,
+      },
+      body: JSON.stringify({
+        sender: { name: 'FarmWeather', email: process.env.EMAIL_USER },
+        to: [{ email: user.email }],
+        subject: 'FarmWeather Password Reset',
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+            <h2 style="color: #2d6a4f;">🌾 FarmWeather Password Reset</h2>
+            <p>You requested a password reset. Click the button below to set a new password:</p>
+            <a href="${resetUrl}" style="display:inline-block; padding: 12px 24px; background: #40916c; color: white; text-decoration: none; border-radius: 8px; margin: 16px 0;">
+              Reset Password
+            </a>
+            <p style="color: #666; font-size: 0.85rem;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+          </div>
+        `,
+      }),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Brevo API error:', errorData);
+      return res.status(500).json({ message: 'Failed to send email' });
+    }
 
     res.json({ message: 'Reset link sent successfully.' });
   } catch (err) {
